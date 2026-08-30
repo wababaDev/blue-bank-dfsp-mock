@@ -1,0 +1,90 @@
+@token = 1000000000
+
+### 1. Get account info
+GET http://localhost:4040/accounts/260970000000
+Authorization: Bearer {{token}}
+
+### 2. Get balance
+GET http://localhost:4040/accounts/260970000000/balance
+Authorization: Bearer {{token}}
+
+### 3. Get ledger
+GET http://localhost:4040/accounts/260970000000/ledger
+Authorization: Bearer {{token}}
+
+### 4. Get a quote
+POST http://localhost:4040/quotes
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "account_id": "260970000000",
+  "amount": 100.0,
+  "currency": "ZMW"
+}
+
+### 5. Reserve funds (payee side)
+POST http://localhost:4040/funds/reserve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "account_id": "260970000000",
+  "amount": 100.0,
+  "currency": "ZMW"
+}
+
+### 6. Commit a reservation (payee side)
+POST http://localhost:4040/funds/commit
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "reserve_id": "0586afca-2347-4b58-8aa9-6f2f44c5f10b"
+}
+
+### 7. Unreserve (payee side)
+POST http://localhost:4040/funds/unreserve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "reserve_id": "f7f64a01-8281-4471-8790-5ad3834a8838",
+  "reason": "downstream transfer failed"
+}
+
+### 8. Refund a debit (payer side)
+POST http://localhost:4040/debits/refund
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "home_transaction_id": "HTX17F0A9CCB904",
+  "reason": "transfer failed downstream after debit"
+}
+
+### 9. Simulate: ask for a quote (stands in for the app)
+POST http://localhost:4040/simulate/send-money
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "payer_account_id": "260970000000",
+  "payee_id": "16135551212",
+  "amount": 150.00,
+  "send_currency": "ZMW",
+  "receive_currency": "MWK"
+}
+
+### 10. Simulate: accept a quote (stands in for the app)
+POST http://localhost:4040/simulate/accept-quote
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "transaction_id": "TXN16066DE18E324CA4",
+  "home_transaction_id": "HTX17F0A9CCB904",
+  "payer_account_id": "260970000000",
+  "amount": 150.00,
+  "currency": "ZMW"
+}

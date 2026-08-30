@@ -1,0 +1,183 @@
+@token = 1000000000
+
+### === Setup / lookups ===
+
+### Get account info (active account)
+GET http://localhost:4040/accounts/260970000009
+Authorization: Bearer {{token}}
+
+### Get balance
+GET http://localhost:4040/accounts/260970000000/balance
+Authorization: Bearer {{token}}
+
+### Get ledger (should be empty at first)
+GET http://localhost:4040/accounts/260970000000/ledger
+Authorization: Bearer {{token}}
+
+### === Auth failure cases ===
+
+### No auth header (should 401)
+GET http://localhost:4040/accounts/260970000000
+
+### Wrong token (should 401)
+GET http://localhost:4040/accounts/260970000000
+Authorization: Bearer wrong-token
+
+
+### === PAYEE SIDE: reserve -> commit (money arriving for this customer) ===
+### Reserve does NOT touch the balance — Bob never had this money yet.
+### Only commit actually credits the account.
+
+### Reserve funds (a pending marker only — balance is NOT touched)
+POST http://localhost:4040/funds/reserve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "account_id": "260970000000",
+  "amount": 100.0,
+  "currency": "ZMW"
+}
+
+### Check balance - should be UNCHANGED (reserve never touches it)
+GET http://localhost:4040/accounts/260970000000/balance
+Authorization: Bearer {{token}}
+
+### Commit (replace reserve_id with the one from the reserve response above)
+### This is the ONLY point the balance actually changes on the payee side.
+POST http://localhost:4040/funds/commit
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "reserve_id": "REPLACE_ME"
+}
+
+### Check balance again - should be 100 HIGHER now, only after commit
+GET http://localhost:4040/accounts/260970000000/balance
+Authorization: Bearer {{token}}
+
+### Check the ledger - should show a PENDING entry (balance unchanged) then a CREDIT entry (balance up)
+GET http://localhost:4040/accounts/260970000000/ledger
+Authorization: Bearer {{token}}
+
+
+### === PAYEE SIDE: reserve -> unreserve (hold gets cancelled, nothing ever really happened) ===
+
+### Reserve funds again
+POST http://localhost:4040/funds/reserve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "account_id": "260970000000",
+  "amount": 50.0,
+  "currency": "ZMW"
+}
+
+### Unreserve it (replace reserve_id) - balance should NOT change, since it was never touched
+POST http://localhost:4040/funds/unreserve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "reserve_id": "REPLACE_ME",
+  "reason": "downstream transfer failed"
+}
+
+### Try to unreserve the SAME one again - should 422, already RELEASED
+POST http://localhost:4040/funds/unreserve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "reserve_id": "REPLACE_ME",
+  "reason": "trying again"
+}
+
+### Try to unreserve something already COMMITTED (use a reserve_id from the commit test above) - should 422
+POST http://localhost:4040/funds/unreserve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "reserve_id": "REPLACE_WITH_ALREADY_COMMITTED_ID",
+  "reason": "wrong endpoint on purpose"
+}
+
+
+### === SIMULATE: stands in for the DFSP's own customer-facing app ===
+### Toggle test/live by setting MODE when you start the mock:
+###   MODE=test uvicorn app.main:app --port 4040        (no connector needed)
+###   MODE=live uvicorn app.main:app --port 4040         (real connector must be running)
+
+### Ask for a quote (never touches money, either mode)
+POST http://localhost:4040/simulate/send-money
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "payer_account_id": "260970000000",
+  "payee_id": "16135551212",
+  "amount": 150.00,
+  "send_currency": "ZMW",
+  "receive_currency": "MWK"
+}
+
+### Accept the quote - ALWAYS really debits, regardless of mode
+### (replace transaction_id / home_transaction_id with the ones from the quote response above)
+POST http://localhost:4040/simulate/accept-quote
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "transaction_id": "TXN494BFD64EA584F18",
+  "home_transaction_id": "HTX76ADE405279B",
+  "payer_account_id": "260970000000",
+  "amount": 150.00,
+  "currency": "ZMW"
+}
+
+### Check the balance dropped by 150 - the debit was real even in test mode
+GET http://localhost:4040/accounts/260970000000/balance
+Authorization: Bearer {{token}}
+
+### Check the ledger shows the DEBIT entry from the simulated accept
+GET http://localhost:4040/accounts/260970000000/ledger
+Authorization: Bearer {{token}}
+
+
+### === PAYER SIDE: refund (reverses a real debit made via /simulate/accept-quote) ===
+### Note: there's no standalone debit endpoint to test here — the connector
+### never calls one directly. Debits only happen through /simulate/accept-quote
+### above, matching how a real app debits its own CBS before telling the
+### connector to proceed. Run the SIMULATE section above first, then come back
+### here using the home_transaction_id it generated.
+
+### Refund a debit - looked up by home_transaction_id (replace with a real one from a simulate/accept-quote response)
+POST http://localhost:4040/debits/refund
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "home_transaction_id": "HTX76ADE405279B",
+  "reason": "transfer failed downstream after debit"
+}
+
+### Check balance - should be back up by the refunded amount
+GET http://localhost:4040/accounts/260970000000/balance
+Authorization: Bearer {{token}}
+
+### Try refunding the SAME home_transaction_id again - should 422, already REFUNDED
+POST http://localhost:4040/debits/refund
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "home_transaction_id": "HTX76ADE405279B",
+  "reason": "trying again"
+}
+
+### Final ledger check - should show the full story in order
+GET http://localhost:4040/accounts/260970000000/ledger
+Authorization: Bearer {{token}}
